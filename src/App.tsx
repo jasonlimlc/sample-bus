@@ -25,7 +25,12 @@ import {
   COLOCATED_BUSES_STOP_08031,
   NEARBY_BUS_STOPS,
 } from './data/transitData';
-import { BusStop, BusArrivalPrediction, TransponderVehicle } from './types/transit';
+import { BusStop, BusArrivalPrediction, TransponderVehicle, ColocatedBus } from './types/transit';
+import {
+  fetchLTABusArrivals,
+  parseLTAPredictions,
+  extractColocatedBusesFromLTA,
+} from './services/ltaService';
 
 export default function App() {
   // Navigation & View Tab
@@ -43,6 +48,9 @@ export default function App() {
 
   // Bookmarked Stops
   const [savedStops, setSavedStops] = useState<BusStop[]>([defaultStop]);
+
+  // Co-located buses dynamically fetched or defaulted
+  const [colocatedBuses, setColocatedBuses] = useState<ColocatedBus[]>(COLOCATED_BUSES_STOP_08031);
 
   // Live Arrival Predictions
   const [predictions, setPredictions] = useState<BusArrivalPrediction[]>([
@@ -92,22 +100,55 @@ export default function App() {
     }, 3200);
   };
 
-  // Clock telemetry ticker
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSecondsSinceUpdate((prev) => {
-        if (prev >= 25) {
-          return 1; // simulated auto-refresh
+  // Fetch real-time LTA Bus Arrival information
+  const loadLTAData = async (isManual = false) => {
+    try {
+      const data = await fetchLTABusArrivals(activeStop.code, activeServiceNumber);
+      if (data && data.Services && data.Services.length > 0) {
+        const targetService = data.Services.find(
+          (s) => s.ServiceNo.toLowerCase() === activeServiceNumber.toLowerCase()
+        ) || data.Services[0];
+
+        const parsed = parseLTAPredictions(targetService);
+        if (parsed.length > 0) {
+          setPredictions(parsed);
         }
-        return prev + 1;
-      });
+
+        const others = extractColocatedBusesFromLTA(data.Services, activeServiceNumber);
+        if (others.length > 0) {
+          setColocatedBuses(others);
+        }
+      }
+      setSecondsSinceUpdate(1);
+      if (isManual) {
+        showToast('Live telemetry synchronized with LTA Datamall v3');
+      }
+    } catch (err) {
+      console.warn('LTA arrivals fetch issue:', err);
+    }
+  };
+
+  // Clock telemetry ticker & 20-second LTA refresh cycle
+  useEffect(() => {
+    loadLTAData();
+
+    // 20-second LTA API polling cycle matching the LTA specification
+    const ltaPolling = setInterval(() => {
+      loadLTAData();
+    }, 20000);
+
+    const timer = setInterval(() => {
+      setSecondsSinceUpdate((prev) => prev + 1);
     }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+
+    return () => {
+      clearInterval(ltaPolling);
+      clearInterval(timer);
+    };
+  }, [activeStop.code, activeServiceNumber]);
 
   const handleManualRefresh = () => {
-    setSecondsSinceUpdate(1);
-    showToast('Live telemetry synchronized with LTA Datamall API');
+    loadLTAData(true);
   };
 
   const handleLocateUser = () => {
@@ -280,7 +321,7 @@ export default function App() {
                 {/* Co-located Services at this Stop */}
                 <ColocatedBuses
                   stopCode={activeStop.code}
-                  buses={COLOCATED_BUSES_STOP_08031}
+                  buses={colocatedBuses}
                   onSelectService={handleSelectService}
                 />
               </div>
