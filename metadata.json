@@ -1,0 +1,6 @@
+{
+  "name": "SBS Transit Live - CityTransit Network OS",
+  "description": "Real-time Singapore bus arrivals, sequential route transponders, live telemetry stepper, and interactive transit corridor tracking.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
